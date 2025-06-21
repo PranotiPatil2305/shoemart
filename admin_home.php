@@ -19,7 +19,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item"><a class="nav-link" href="add_product.php">Add New Product</a></li>
-                    <li class="nav-item"><a class="nav-link" href="#">Orders</a></li>
+                    <li class="nav-item"><a class="nav-link" href="admin_orders.php">Orders</a></li>
                     <li class="nav-item"><a class="nav-link" href="logout.php">Logout</a></li>
                 </ul>
             </div>
@@ -33,4 +33,3 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     </div>
 </body>
 </html>
-    

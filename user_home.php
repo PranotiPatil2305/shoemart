@@ -11,10 +11,12 @@ $category = $_GET['category'] ?? '';
 $cart = $_SESSION['cart'] ?? [];
 
 // Handle add to cart
-if (isset($_GET['add_to_cart'])) {
+if (isset($_GET['add_to_cart']) && isset($_GET['size'])) {
     $pid = $_GET['add_to_cart'];
-    if (!in_array($pid, $cart)) {
-        $cart[] = $pid;
+    $size = $_GET['size'];
+    $cartItem = $pid . '-' . $size;
+    if (!in_array($cartItem, $cart)) {
+        $cart[] = $cartItem;
         $_SESSION['cart'] = $cart;
         $msg = "Product added to cart.";
     } else {
@@ -26,22 +28,24 @@ if (isset($_GET['add_to_cart'])) {
 
 // Handle remove from cart
 if (isset($_GET['remove_from_cart'])) {
-    $pid = $_GET['remove_from_cart'];
-    $_SESSION['cart'] = array_diff($cart, [$pid]);
+    $cartItem = $_GET['remove_from_cart'];
+    $_SESSION['cart'] = array_diff($cart, [$cartItem]);
     header("Location: user_home.php?category=$category");
     exit;
 }
 
 // Handle Buy
 if (isset($_GET['buy']) && count($cart) > 0) {
-    $ids = implode(',', array_map('intval', $cart));
-    $result = $conn->query("SELECT * FROM products WHERE id IN ($ids)");
     $total = 0;
     $items = [];
 
-    while ($row = $result->fetch_assoc()) {
-        $total += $row['price'];
-        $items[] = $row['id'];
+    foreach ($cart as $cartItem) {
+        list($pid, $size) = explode('-', $cartItem);
+        $result = $conn->query("SELECT * FROM products WHERE id = $pid");
+        if ($row = $result->fetch_assoc()) {
+            $total += $row['price'];
+            $items[] = ['id' => $pid, 'size' => $size];
+        }
     }
 
     // Save to orders table
@@ -51,11 +55,11 @@ if (isset($_GET['buy']) && count($cart) > 0) {
     $order_id = $stmt->insert_id;
 
     // Save order items
-    foreach ($items as $pid) {
-        $conn->query("INSERT INTO order_items (order_id, product_id) VALUES ($order_id, $pid)");
+    foreach ($items as $item) {
+        $conn->query("INSERT INTO order_items (order_id, product_id) VALUES ($order_id, {$item['id']})");
     }
 
-    $_SESSION['cart'] = []; // Clear cart
+    $_SESSION['cart'] = [];
     header("Location: user_home.php?msg=" . urlencode("Order placed successfully!"));
     exit;
 }
@@ -68,7 +72,6 @@ if (isset($_GET['buy']) && count($cart) > 0) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-<!-- Navbar -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="user_home.php">ShoeMart</a>
@@ -80,7 +83,6 @@ if (isset($_GET['buy']) && count($cart) > 0) {
                     </li>
                 <?php endforeach; ?>
             </ul>
-            <!-- Cart Button -->
             <ul class="navbar-nav ms-auto">
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle btn btn-light text-dark" href="#" role="button" data-bs-toggle="dropdown">
@@ -89,10 +91,12 @@ if (isset($_GET['buy']) && count($cart) > 0) {
                     <ul class="dropdown-menu dropdown-menu-end">
                         <?php
                         if (count($cart) > 0) {
-                            $ids = implode(',', $cart);
-                            $result = $conn->query("SELECT * FROM products WHERE id IN ($ids)");
-                            while ($item = $result->fetch_assoc()) {
-                                echo "<li class='dropdown-item'>{$item['name']} - ₹{$item['price']} <a href='?remove_from_cart={$item['id']}&category=$category' class='text-danger ms-2'>&times;</a></li>";
+                            foreach ($cart as $item) {
+                                list($pid, $size) = explode('-', $item);
+                                $result = $conn->query("SELECT * FROM products WHERE id = $pid");
+                                if ($row = $result->fetch_assoc()) {
+                                    echo "<li class='dropdown-item'>{$row['name']} - ₹{$row['price']} (Size: $size) <a href='?remove_from_cart=$item&category=$category' class='text-danger ms-2'>&times;</a></li>";
+                                }
                             }
                             echo "<li><hr class='dropdown-divider'></li>";
                             echo "<li><a href='?buy=1&category=$category' class='dropdown-item text-success'>Buy Now</a></li>";
@@ -108,12 +112,10 @@ if (isset($_GET['buy']) && count($cart) > 0) {
     </div>
 </nav>
 
-<!-- Feedback Message -->
 <?php if (isset($_GET['msg'])): ?>
-<div class="alert alert-info text-center"> <?= htmlspecialchars($_GET['msg']) ?> </div>
+    <div class="alert alert-info text-center"> <?= htmlspecialchars($_GET['msg']) ?> </div>
 <?php endif; ?>
 
-<!-- Product Cards -->
 <div class="container mt-4">
     <h4><?= $category ? "Showing $category Shoes" : "Select a Category" ?></h4>
     <div class="row">
@@ -124,17 +126,26 @@ if (isset($_GET['buy']) && count($cart) > 0) {
             $stmt->execute();
             $result = $stmt->get_result();
             while ($row = $result->fetch_assoc()) {
-                echo "
-                <div class='col-md-3 mb-4'>
-                    <div class='card h-100'>
-                        <img src='{$row['image']}' class='card-img-top' style='height:200px; object-fit:cover;'>
-                        <div class='card-body'>
-                            <h5 class='card-title'>{$row['name']}</h5>
-                            <p class='card-text'>Size: {$row['size']}<br>Price: ₹{$row['price']}</p>
-                            <a href='?add_to_cart={$row['id']}&category=$category' class='btn btn-primary w-100'>Add to Cart</a>
+                echo "<div class='col-md-4 mb-4'>
+                        <div class='card h-100'>
+                            <img src='{$row['image']}' class='card-img-top' style='height:200px; object-fit:cover;'>
+                            <div class='card-body'>
+                                <h5 class='card-title'>{$row['name']}</h5>
+                                <p class='card-text'>Price: ₹{$row['price']}</p>
+                                <form method='get'>
+                                    <input type='hidden' name='add_to_cart' value='{$row['id']}'>
+                                    <input type='hidden' name='category' value='$category'>
+                                    <div class='mb-2'>Size:<br>";
+                $sizes = ($category === 'Men' || $category === 'Women') ? range(6, 10) : range(3, 6);
+                foreach ($sizes as $s) {
+                    echo "<label class='me-2'><input type='radio' name='size' value='$s' required> $s</label>";
+                }
+                echo "        </div>
+                                    <button type='submit' class='btn btn-primary w-100'>Add to Cart</button>
+                                </form>
+                            </div>
                         </div>
-                    </div>
-                </div>";
+                    </div>";
             }
         }
         ?>
